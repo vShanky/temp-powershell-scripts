@@ -1,4 +1,6 @@
-# Removes youtube block entries from hosts
+# Sometimes it not work so do run windows-refresh-script
+
+# Removes youtube block entries from hosts 
 $hosts = "$env:SystemRoot\System32\drivers\etc\hosts"
 (Get-Content $hosts) | Where-Object {$_ -notmatch 'youtube\.com'} | Set-Content $hosts
 ipconfig /flushdns
