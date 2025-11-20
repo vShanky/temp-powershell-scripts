@@ -1,5 +1,10 @@
 # powershell -ExecutionPolicy Bypass -File Delete-user-forcefully.ps1 -UserName "Shashank"
 
+### Option-1
+Remove-LocalUser -Name "ashar"
+Remove-Item -Path "C:\Users\ashar" -Recurse -Force
+
+### Option-2
 # This script delete the user forcefully, with all access, whatever he have.
 param(
     [Parameter(Mandatory = $true)]
