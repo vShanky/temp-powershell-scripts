@@ -1,0 +1,57 @@
+# ==============================================
+#  Clear All Caches (DNS, NetBIOS, Browsers, Temp)
+# ==============================================
+Write-Host "=== Clearing All Caches (DNS, NetBIOS, Browsers, Network) ===" -ForegroundColor Cyan
+
+# --- Flush Windows DNS cache ---
+try {
+    Clear-DnsClientCache
+    Write-Host "[✔] Windows DNS cache cleared."
+} catch {
+    Write-Host "[⚠] Failed to clear DNS cache: $_" -ForegroundColor Yellow
+}
+
+# --- Flush NetBIOS name cache ---
+try {
+    nbtstat -R | Out-Null
+    nbtstat -RR | Out-Null
+    Write-Host "[✔] NetBIOS name cache cleared."
+} catch {
+    Write-Host "[⚠] Failed to clear NetBIOS cache: $_" -ForegroundColor Yellow
+}
+
+# --- Clear Internet Explorer / system web cache ---
+try {
+    RunDll32.exe InetCpl.cpl,ClearMyTracksByProcess 255
+    Write-Host "[✔] Internet Explorer / system web cache cleared."
+} catch {
+    Write-Host "[⚠] Failed to clear IE cache: $_" -ForegroundColor Yellow
+}
+
+# --- Clear Chrome & Edge cache ---
+$chromeUserData = "$env:LOCALAPPDATA\Google\Chrome\User Data"
+$edgeUserData   = "$env:LOCALAPPDATA\Microsoft\Edge\User Data"
+
+try {
+    # Close browsers first
+    Get-Process chrome, msedge -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+    # Remove cache directories
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$chromeUserData\*\Cache"
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$edgeUserData\*\Cache"
+    Write-Host "[✔] Browser cache directories cleared (Chrome & Edge)."
+} catch {
+    Write-Host "[⚠] Failed to clear browser cache: $_" -ForegroundColor Yellow
+}
+
+# --- Clear Temp and Prefetch files ---
+try {
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$env:LOCALAPPDATA\Temp\*"
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue "$env:SystemRoot\Prefetch\*"
+    Write-Host "[✔] Temp and Prefetch cache cleared."
+} catch {
+    Write-Host "[⚠] Failed to clear Temp or Prefetch files: $_" -ForegroundColor Yellow
+}
+
+# --- Finish ---
+Write-Host "=== All caches cleared successfully! ===" -ForegroundColor Green
