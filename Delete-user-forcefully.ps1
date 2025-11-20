@@ -1,4 +1,4 @@
-# powershell -ExecutionPolicy Bypass -File Remove-User.ps1 -UserName "Shashank"
+# powershell -ExecutionPolicy Bypass -File Delete-user-forcefully.ps1 -UserName "Shashank"
 
 # This script delete the user forcefully, with all access, whatever he have.
 param(
