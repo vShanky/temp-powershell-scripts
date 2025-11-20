@@ -1,0 +1,119 @@
+powershell.exe -ExecutionPolicy Bypass -File Kiosk.ps1 -UserName "Ayaz" -Website "google.com"
+
+## This will create kiosk for user (if already created) with edge browser
+
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$UserName,      # e.g. "Ayaz, Shashank"
+
+    [Parameter(Mandatory=$true)]
+    [string]$Website
+)
+
+# --------------------------
+# Ensure script runs as admin
+# --------------------------
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)) {
+
+    # Build argument list as an array to avoid quoting issues
+    $argList = @(
+        '-NoProfile'
+        '-ExecutionPolicy'
+        'Bypass'
+        '-File'
+        $PSCommandPath
+        '-UserName'
+        $UserName
+        '-Website'
+        $Website
+    )
+
+    Start-Process -FilePath (Get-Command powershell).Source -ArgumentList $argList -Verb RunAs
+    exit
+}
+
+# --------------------------
+# Split multi-user input
+# --------------------------
+$UserList = $UserName.Split(",") | ForEach-Object { $_.Trim() }
+
+Write-Host "`nUsers detected:" $UserList
+# --------------------------
+# Loop for each user
+# --------------------------
+foreach ($User in $UserList) {
+
+    Write-Host "`nConfiguring kiosk user: $User"
+
+    $userDesc = "Kiosk account with Assigned Access"
+
+    # Create user if not exists
+    if (-not (Get-LocalUser -Name $User -ErrorAction SilentlyContinue)) {
+        New-LocalUser -Name $User -NoPassword -AccountNeverExpires -UserMayNotChangePassword -Description $userDesc `
+            | Set-LocalUser -PasswordNeverExpires $true
+
+        Add-LocalGroupMember -SID S-1-5-32-545 -Member $User
+    }
+    else {
+        Write-Host "User $User already exists. Skipping creation."
+    }
+
+    # Get SID + Windows version
+    $Sid = (Get-LocalUser -Name $User).SID.Value
+    $version = (Get-ComputerInfo | Select-Object -ExpandProperty OsBuildNumber)
+
+    # --------------------------
+    # NEW BUILD (Win 10/11)
+    # --------------------------
+    if ($version -gt 19041) {
+
+        $AUMID = "Microsoft.MicrosoftEdge.Stable_8wekyb3d8bbwe!App"
+        Set-AssignedAccess -UserName $User -AppUserModelId $AUMID
+
+        # attempt to get profile id - wrap in try in case key not present yet
+        try {
+            $profile = Get-ItemPropertyValue "HKLM:\SOFTWARE\Microsoft\Windows\AssignedAccessConfiguration\Configs\$Sid" -Name DefaultProfileId -ErrorAction Stop
+        } catch {
+            Write-Host "Could not find AssignedAccess profile for $User yet. You may need to run Set-AssignedAccess manually or sign in once." -ForegroundColor Yellow
+            continue
+        }
+
+        $regpath = "HKLM:\SOFTWARE\Microsoft\Windows\AssignedAccessConfiguration\Profiles\$profile\AllowedApps\App0"
+
+        # Ensure registry path exists
+        if (-not (Test-Path $regpath)) {
+            New-Item -Path $regpath -Force | Out-Null
+        }
+
+        Set-ItemProperty -Path $regpath -Name "AppId" -Value "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
+        Set-ItemProperty -Path $regpath -Name "Arguments" -Value "--no-first-run --kiosk $Website --kiosk-idle-timeout-minutes=0 --edge-kiosk-type=fullscreen"
+        Set-ItemProperty -Path $regpath -Name "AppType" -Value 3 -Type DWord
+        Set-ItemProperty -Path $regpath -Name "AutoLaunch" -Value 1 -Type DWord
+    }
+
+    # --------------------------
+    # OLD BUILD
+    # --------------------------
+    else {
+
+        $AUMID = "Microsoft.MicrosoftEdge_8wekyb3d8bbwe!MicrosoftEdge"
+        Set-AssignedAccess -UserName $User -AppUserModelId $AUMID
+
+        New-Item -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\current" -Name $Sid -Force | Out-Null
+        New-Item -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\$Sid" -Name "Browser" -Force | Out-Null
+
+        $regpath = "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\$Sid\Browser"
+
+        New-ItemProperty -Path $regpath -PropertyType DWord -Name "ConfigureHomeButton" -Value 2 -Force
+        New-ItemProperty -Path $regpath -PropertyType DWord -Name "ConfigureKioskMode" -Value 0 -Force
+        New-ItemProperty -Path $regpath -PropertyType DWord -Name "ConfigureKioskResetAfterIdleTimeout" -Value 5 -Force
+
+        New-ItemProperty -Path $regpath -PropertyType String -Name "Homepages" -Value "<$Website>" -Force
+        New-ItemProperty -Path $regpath -PropertyType String -Name "SetHomeButtonURL" -Value $Website -Force
+        New-ItemProperty -Path $regpath -PropertyType String -Name "SetNewTabPageURL" -Value $Website -Force
+    }
+
+    Write-Host "✔ Completed kiosk setup for user: $User"
+}
+
+Write-Host "`nAll users processed successfully!"
