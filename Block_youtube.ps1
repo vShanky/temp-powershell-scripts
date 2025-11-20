@@ -1,3 +1,5 @@
+# Sometimes it not work so do run windows-refresh-script
+
 # Blocks YouTube by hosts
 $entries = @(
     "0.0.0.0 youtube.com",
