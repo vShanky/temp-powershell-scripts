@@ -1,4 +1,6 @@
-powershell.exe -ExecutionPolicy Bypass -File Kiosk.ps1 -UserName "Ayaz" -Website "google.com"
+Single   --  powershell.exe -ExecutionPolicy Bypass -File Kiosk.ps1 -UserName "Ayaz" -Website "google.com"
+Multiple -- powershell.exe -ExecutionPolicy Bypass -File Kiosk.ps1 -UserName "Ayaz, Shashank, Imran" -Website "google.com"
+
 
 ## This will create kiosk for user (if already created) with edge browser
 
