@@ -1,4 +1,5 @@
-# Blocks popular social media via hosts file. Run as admin.
+# Blocks popular social media via hosts filein windows. Run as admin.
+
 $entries = @(
   "0.0.0.0 facebook.com","0.0.0.0 www.facebook.com","0.0.0.0 m.facebook.com",
   "0.0.0.0 instagram.com","0.0.0.0 www.instagram.com",
