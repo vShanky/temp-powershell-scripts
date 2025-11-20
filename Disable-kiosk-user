@@ -1,0 +1,20 @@
+param(
+    [Parameter(Mandatory=$true)]
+    [string]$UserName   # supports "Ayaz, Shashank" same like your script
+)
+
+# Split multi-user
+$UserList = $UserName.Split(",") | ForEach-Object { $_.Trim() }
+
+foreach ($User in $UserList) {
+
+    Write-Host "`nDisabling kiosk for user: $User"
+
+    try {
+        Remove-AssignedAccess -UserName $User -ErrorAction Stop
+        Write-Host "✔ Kiosk mode disabled for $User"
+    }
+    catch {
+        Write-Host "⚠ Could not remove Assigned Access for $User. Maybe not configured." -ForegroundColor Yellow
+    }
+}
