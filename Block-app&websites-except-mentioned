@@ -1,7 +1,4 @@
-powershell.exe -ExecutionPolicy Bypass -File Strict-Block-User.ps1 `
-    -UserName "Ayaz,Shashank,Ashar" `
-    -Apps "chrome.exe,whatsapp.exe,notepad.exe" `
-    -Websites "facebook.com,instagram.com,twitter.com"
+#powershell.exe -ExecutionPolicy Bypass -File Strict-Block-User.ps1 -UserName "Ayaz,Ashar" -Apps "chrome.exe,notepad.exe,whatsapp.exe" -Websites "facebook.com,instagram.com,twitter.com"
 
 
 <#
@@ -12,16 +9,16 @@ Strict "Allow List Only" mode for apps + website blocking for multiple users.
 Comma-separated list of usernames. e.g., "Ayaz,Shashank,Ashar"
 
 .PARAMETER Apps
-Comma-separated list of apps to ALLOW. e.g., "chrome.exe,notepad.exe"
+Comma-separated list of apps to ALLOW. Only these apps will be permitted.
+e.g., "chrome.exe,notepad.exe"
 
 .PARAMETER Websites
 Comma-separated list of websites to BLOCK. e.g., "facebook.com,instagram.com"
 
 .NOTES
-- Must run PowerShell as Administrator
-- App restrictions are applied via DisallowRun per user
-- Websites blocked via hosts file (applies to all users)
-- Only apps in the allow list can run; all others are blocked
+- Must run as Administrator
+- Apps are controlled using RestrictRun (only apps in the list allowed)
+- Websites blocked via hosts file (global for all users)
 #>
 
 param(
@@ -30,20 +27,31 @@ param(
     [Parameter(Mandatory=$true)][string]$Websites
 )
 
+# ---------------------- Require Administrator ----------------------
+if (-not ([Security.Principal.WindowsPrincipal] `
+        [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(`
+        [Security.Principal.WindowsBuiltInRole]::Administrator)) {
+
+    Write-Host "Restarting script with Administrator privileges..."
+    Start-Process powershell "-ExecutionPolicy Bypass -File `"$PSCommandPath`" $($MyInvocation.UnboundArguments)" -Verb RunAs
+    exit
+}
+
+Write-Host "Strict Allow-List Mode Starting..." -ForegroundColor Cyan
+
 # ---------------------- Parse Parameters ----------------------
 $UserList    = $UserName -split ",\s*"
 $AppList     = $Apps -split ",\s*"
 $WebsiteList = $Websites -split ",\s*"
 
-Write-Host "`n🔒 Strict Allow-List Mode Starting..." -ForegroundColor Cyan
-
-# ---------------------- BLOCK APPS PER USER ----------------------
+# ---------------------- APPLY APP ALLOW-LIST PER USER ----------------------
 foreach ($user in $UserList) {
+
     Write-Host "`nProcessing user: $user" -ForegroundColor Yellow
 
-    # Get user SID
+    # Get SID of user
     $localUser = Get-LocalUser -Name $user -ErrorAction SilentlyContinue
-    if (-not $localUser) { Write-Host "❌ User $user not found"; continue }
+    if (-not $localUser) { Write-Host "User $user not found"; continue }
     $sid = $localUser.SID.Value
 
     $userHKCU = "HKU:\$sid\Software\Microsoft\Windows\CurrentVersion\Policies\Explorer"
@@ -53,24 +61,27 @@ foreach ($user in $UserList) {
         New-Item -Path "HKU:\$sid\Software\Microsoft\Windows\CurrentVersion\Policies" -Name "Explorer" -Force | Out-Null
     }
 
-    # Enable DisallowRun = 1
-    New-ItemProperty -Path $userHKCU -Name "DisallowRun" -Value 1 -PropertyType DWord -Force | Out-Null
+    # Enable RestrictRun = 1 (strict allow-only mode)
+    New-ItemProperty -Path $userHKCU -Name "RestrictRun" -Value 1 -PropertyType DWord -Force | Out-Null
 
-    $disallowRunKey = "$userHKCU\DisallowRun"
-    if (-not (Test-Path $disallowRunKey)) { New-Item -Path $userHKCU -Name "DisallowRun" -Force | Out-Null }
+    # Create RestrictRun key
+    $restrictKey = "$userHKCU\RestrictRun"
+    if (-not (Test-Path $restrictKey)) {
+        New-Item -Path $userHKCU -Name "RestrictRun" -Force | Out-Null
+    }
 
-    # Clear existing entries (strict mode)
-    Get-ItemProperty -Path $disallowRunKey -ErrorAction SilentlyContinue | ForEach-Object {
+    # Clear old entries
+    Get-ItemProperty -Path $restrictKey -ErrorAction SilentlyContinue | ForEach-Object {
         $_.PSObject.Properties | Where-Object { $_.Name -match '^\d+$' } | ForEach-Object {
-            Remove-ItemProperty -Path $disallowRunKey -Name $_.Name -Force
+            Remove-ItemProperty -Path $restrictKey -Name $_.Name -Force
         }
     }
 
-    # Add only allowed apps
+    # Add allowed apps
     $index = 1
     foreach ($AppName in $AppList) {
-        New-ItemProperty -Path $disallowRunKey -Name $index -Value $AppName -PropertyType String -Force | Out-Null
-        Write-Host "✅ Allowed app for $user: $AppName"
+        New-ItemProperty -Path $restrictKey -Name $index -Value $AppName -PropertyType String -Force | Out-Null
+        Write-Host "Allowed app for $($user): $($AppName)"
         $index++
     }
 }
@@ -78,25 +89,36 @@ foreach ($user in $UserList) {
 # ---------------------- BLOCK WEBSITES GLOBALLY ----------------------
 $hostsPath = "$env:SystemRoot\System32\drivers\etc\hosts"
 
-if (-not (Test-Path $hostsPath)) { Write-Host "❌ hosts file not found"; exit }
+if (-not (Test-Path $hostsPath)) {
+    Write-Host "ERROR: Hosts file not found at: $hostsPath"
+    exit
+}
+
+Write-Host "`nApplying website blocks..." -ForegroundColor Cyan
 
 foreach ($WebsiteDomain in $WebsiteList) {
+
     Write-Host "Blocking website: $WebsiteDomain"
-    $entriesToAdd = @()
 
     $mainEntry = "127.0.0.1`t$WebsiteDomain"
     $wwwEntry  = "127.0.0.1`twww.$WebsiteDomain"
 
-    if (-not (Select-String -Path $hostsPath -Pattern "^\s*127\.0\.0\.1\s+$WebsiteDomain" -Quiet)) { $entriesToAdd += $mainEntry }
-    if (-not (Select-String -Path $hostsPath -Pattern "^\s*127\.0\.0\.1\s+www.$WebsiteDomain" -Quiet)) { $entriesToAdd += $wwwEntry }
+    $needsMain = -not (Select-String -Path $hostsPath -Pattern "^\s*127\.0\.0\.1\s+$WebsiteDomain" -Quiet)
+    $needsWWW  = -not (Select-String -Path $hostsPath -Pattern "^\s*127\.0\.0\.1\s+www.$WebsiteDomain" -Quiet)
 
-    if ($entriesToAdd.Count -gt 0) {
-        Add-Content -Path $hostsPath -Value "`n# Blocked by PowerShell script"
-        $entriesToAdd | ForEach-Object { Add-Content -Path $hostsPath -Value $_ }
-        Write-Host "✅ Website '$WebsiteDomain' blocked."
-    } else { Write-Host "ℹ️ Website '$WebsiteDomain' already blocked." }
+    if ($needsMain -or $needsWWW) {
+        Add-Content -Path $hostsPath -Value "`n# Blocked by Parental Control Script"
+        if ($needsMain) { Add-Content -Path $hostsPath -Value $mainEntry }
+        if ($needsWWW)  { Add-Content -Path $hostsPath -Value $wwwEntry }
+
+        Write-Host "Website '$WebsiteDomain' blocked."
+    }
+    else {
+        Write-Host "Website '$WebsiteDomain' already blocked."
+    }
 }
 
-Write-Host "`n🎉 All done!"
-Write-Host "👉 Users may need to sign out & back in for app blocks to take effect."
-Write-Host "👉 Flush DNS for website blocks: ipconfig /flushdns"
+# ---------------------- DONE ----------------------
+Write-Host "`nAll tasks completed successfully." -ForegroundColor Green
+Write-Host "Users must sign out and sign back in for app restrictions to apply."
+Write-Host "Run this command to refresh website blocking immediately: ipconfig /flushdns"
