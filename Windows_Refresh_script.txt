@@ -1,3 +1,4 @@
+# This refresh the whole windows user system, to make the script run properly
 # ==============================================
 #  Clear All Caches (DNS, NetBIOS, Browsers, Temp)
 # ==============================================
@@ -55,3 +56,4 @@ try {
 
 # --- Finish ---
 Write-Host "=== All caches cleared successfully! ===" -ForegroundColor Green
+
