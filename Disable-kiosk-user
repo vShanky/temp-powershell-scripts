@@ -1,20 +1,51 @@
+###Option 1 --
+
+# Remove-AssignedAccess -UserName "Ayaz"
+# Remove-LocalUser -Name "Ayaz"
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------
+###Option 2 --
+
 param(
-    [Parameter(Mandatory=$true)]
-    [string]$UserName   # supports "Ayaz, Shashank" same like your script
+    [string]$UserName
 )
 
-# Split multi-user
 $UserList = $UserName.Split(",") | ForEach-Object { $_.Trim() }
 
 foreach ($User in $UserList) {
 
-    Write-Host "`nDisabling kiosk for user: $User"
+    Write-Host "`nCleaning kiosk config for user: $User"
 
+    # 1. Remove Assigned Access
     try {
         Remove-AssignedAccess -UserName $User -ErrorAction Stop
-        Write-Host "✔ Kiosk mode disabled for $User"
+        Write-Host "✔ AssignedAccess removed"
+    } catch {}
+
+    # 2. Remove Config Keys (new builds)
+    $Sid = (Get-LocalUser -Name $User).SID.Value
+
+    $configKey = "HKLM:\SOFTWARE\Microsoft\Windows\AssignedAccessConfiguration\Configs\$Sid"
+    $profileKeyRoot = "HKLM:\SOFTWARE\Microsoft\Windows\AssignedAccessConfiguration\Profiles"
+
+    if (Test-Path $configKey) {
+        Remove-Item -Path $configKey -Recurse -Force
+        Write-Host "✔ Removed AssignedAccess Config key"
     }
-    catch {
-        Write-Host "⚠ Could not remove Assigned Access for $User. Maybe not configured." -ForegroundColor Yellow
+
+    if (Test-Path $profileKeyRoot) {
+        $profiles = Get-ChildItem $profileKeyRoot
+        foreach ($p in $profiles) {
+            Remove-Item -Path "$profileKeyRoot\$($p.PSChildName)" -Recurse -Force
+        }
+        Write-Host "✔ Removed Profile keys"
     }
+
+    # 3. Old build keys cleanup
+    $old = "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\$Sid"
+    if (Test-Path $old) {
+        Remove-Item $old -Recurse -Force
+        Write-Host "✔ Removed old policy keys"
+    }
+
+    Write-Host "✔ Completed cleanup for: $User"
 }
