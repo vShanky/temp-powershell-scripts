@@ -1,8 +1,8 @@
 # This will create an standard normal user in Windows, run as administrator only
 
 # Variables (edit these)
-$UserName = "normaluser"
-$Password = "P@ssw0rd123"
+$UserName = "ashar"
+$Password = "Pass@123"
 
 # Convert password to secure string
 $SecurePassword = ConvertTo-SecureString $Password -AsPlainText -Force
