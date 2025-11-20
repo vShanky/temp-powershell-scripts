@@ -1,13 +1,10 @@
 # (Get-Content "C:\Powershell_scripts_for_bat_file\Kiosk.ps1" -Raw) |  Set-Content "C:\Powershell_scripts_for_bat_file\Kiosk_CLEAN.ps1" -Encoding ASCII
-
 # After above command -- powershell.exe -ExecutionPolicy Bypass -File Kiosk_CLEAN.ps1 -UserName "Ayaz" -Website "google.com"
 
-Single   --  powershell.exe -ExecutionPolicy Bypass -File Kiosk.ps1 -UserName "Ayaz" -Website "google.com"
-Multiple -- powershell.exe -ExecutionPolicy Bypass -File Kiosk.ps1 -UserName "Ayaz, Shashank, Imran" -Website "google.com"
-
+#Single   --  powershell.exe -ExecutionPolicy Bypass -File Kiosk.ps1 -UserName "Ayaz" -Website "google.com"
+#Multiple -- powershell.exe -ExecutionPolicy Bypass -File Kiosk.ps1 -UserName "Ayaz, Shashank, Imran" -Website "google.com"
 
 ## This will create kiosk for user (if already created) with edge browser
-
 param(
     [Parameter(Mandatory=$true)]
     [string]$UserName,      # e.g. "Ayaz, Shashank"
