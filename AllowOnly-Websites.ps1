@@ -59,6 +59,10 @@ Write-Host "User: $TargetUser"
 Write-Host "Allowed sites only: $($AllowedDomains -join ', ')"
 
 
-powershell -ExecutionPolicy Bypass -File AllowOnly-Websites.ps1 `
-    -AllowedDomains "google.com","wwe.com","stackoverflow.com" `
-    -TargetUser "KidUser"
+# powershell -ExecutionPolicy Bypass -File AllowOnly-Websites.ps1 -AllowedDomains "google.com","wwe.com","stackoverflow.com" -TargetUser "KidUser"
+
+# $user="KidUser"
+# Get-NetFirewallRule | Where-Object {
+#     $_.DisplayName -like "Allow_Web_${user}_*" -or
+#     $_.DisplayName -eq "Block_All_Other_Web_$user"
+# } | Remove-NetFirewallRule
