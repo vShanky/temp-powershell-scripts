@@ -58,3 +58,9 @@ New-NetFirewallRule -DisplayName "Block_All_Other_Web" -Direction Outbound -Acti
 Write-Host "`nDONE ✅"
 Write-Host "Only these domains should work now: $($AllowedDomains -join ', ')" -ForegroundColor Cyan
 Write-Host "To revert, remove rules with name Allow_Web_* and Block_All_Other_Web."
+
+
+# Get-NetFirewallRule | Where-Object {
+#     $_.DisplayName -like "Allow_Web_*" -or
+#     $_.DisplayName -eq "Block_All_Other_Web"
+# } | Remove-NetFirewallRule
