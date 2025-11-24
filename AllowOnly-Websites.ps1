@@ -1,66 +1,64 @@
-#powershell -ExecutionPolicy Bypass -File .\AllowOnly-Websites.ps1 ` -AllowedDomains "google.com","wwe.com","stackoverflow.com"
-
-# Script will :  Remove old rules, Add new ones based on domains you pass in command, Block everything else again
-
 param(
     [Parameter(Mandatory = $true, Position = 0)]
-    [string[]]$AllowedDomains
+    [string[]]$AllowedDomains,
+
+    [Parameter(Mandatory = $true, Position = 1)]
+    [string]$TargetUser,
+
+    [Parameter(Mandatory = $false, Position = 2)]
+    [string]$Password = "Pass@123"   # default
 )
 
-Write-Host "`n=== Allow-only mode for websites ===" -ForegroundColor Cyan
-Write-Host "Allowed domains: $($AllowedDomains -join ', ')" -ForegroundColor Yellow
+Write-Host "`n=== Checking user ===" -ForegroundColor Cyan
 
-# 1) Clean old rules (so you can re-run with new domains)
-Write-Host "`nRemoving old rules (if any)..." -ForegroundColor DarkYellow
+$userExists = Get-LocalUser -Name $TargetUser -ErrorAction SilentlyContinue
+
+if ($null -eq $userExists) {
+    Write-Host "User '$TargetUser' does NOT exist. Creating user..." -ForegroundColor Yellow
+    
+    $securePass = ConvertTo-SecureString $Password -AsPlainText -Force
+    New-LocalUser -Name $TargetUser -Password $securePass
+
+    Add-LocalGroupMember -Group "Users" -Member $TargetUser
+
+    Write-Host "User created successfully." -ForegroundColor Green
+} else {
+    Write-Host "User '$TargetUser' already exists. Skipping create." -ForegroundColor Green
+}
+
+Write-Host "`n=== Applying allow-only rules===" -ForegroundColor Cyan
+
+# remove old rules for user
 Get-NetFirewallRule | Where-Object {
-    $_.DisplayName -like "Allow_Web_*" -or
-    $_.DisplayName -eq "Block_All_Other_Web"
+    $_.DisplayName -like "Allow_Web_${TargetUser}_*" -or
+    $_.DisplayName -eq "Block_All_Other_Web_$TargetUser"
 } | Remove-NetFirewallRule -ErrorAction SilentlyContinue
 
-# 2) Resolve domains -> IPs
+# resolve IPs
 $AllowedIPs = @()
 
-Write-Host "`nResolving domains to IPs..." -ForegroundColor Yellow
 foreach ($domain in $AllowedDomains) {
     try {
         $ips = (Resolve-DnsName $domain -Type A | Select-Object -ExpandProperty IPAddress)
-        if ($ips) {
-            $AllowedIPs += $ips
-            Write-Host "  $domain -> $($ips -join ', ')"
-        } else {
-            Write-Host "  $domain -> no IPs found" -ForegroundColor Red
-        }
-    } catch {
-        Write-Host "  Failed to resolve $domain" -ForegroundColor Red
-    }
+        $AllowedIPs += $ips
+    } catch {}
 }
 
 $AllowedIPs = $AllowedIPs | Select-Object -Unique
 
-if (-not $AllowedIPs) {
-    Write-Host "`nNo IPs resolved. Aborting." -ForegroundColor Red
-    exit
-}
-
-# 3) Create ALLOW rules per IP
-Write-Host "`nCreating ALLOW rules..." -ForegroundColor Green
 foreach ($ip in $AllowedIPs) {
-    $ruleName = "Allow_Web_$ip"
-    New-NetFirewallRule -DisplayName $ruleName -Direction Outbound -RemoteAddress $ip -Action Allow -Protocol TCP -ErrorAction SilentlyContinue
-    New-NetFirewallRule -DisplayName $ruleName -Direction Outbound -RemoteAddress $ip -Action Allow -Protocol UDP -ErrorAction SilentlyContinue
+    New-NetFirewallRule -DisplayName "Allow_Web_${TargetUser}_$ip" -Direction Outbound -RemoteAddress $ip -Action Allow -Protocol TCP -LocalUser $TargetUser -ErrorAction SilentlyContinue
+    New-NetFirewallRule -DisplayName "Allow_Web_${TargetUser}_$ip" -Direction Outbound -RemoteAddress $ip -Action Allow -Protocol UDP -LocalUser $TargetUser -ErrorAction SilentlyContinue
 }
 
-# 4) Block everything else on ports 80/443
-Write-Host "`nCreating BLOCK rule for all other web traffic..." -ForegroundColor Red
-New-NetFirewallRule -DisplayName "Block_All_Other_Web" -Direction Outbound -Action Block -Protocol TCP -RemotePort 80,443 -ErrorAction SilentlyContinue
-New-NetFirewallRule -DisplayName "Block_All_Other_Web" -Direction Outbound -Action Block -Protocol UDP -RemotePort 80,443 -ErrorAction SilentlyContinue
+New-NetFirewallRule -DisplayName "Block_All_Other_Web_$TargetUser" -Direction Outbound -Action Block -Protocol TCP -RemotePort 80,443 -LocalUser $TargetUser -ErrorAction SilentlyContinue
+New-NetFirewallRule -DisplayName "Block_All_Other_Web_$TargetUser" -Direction Outbound -Action Block -Protocol UDP -RemotePort 80,443 -LocalUser $TargetUser -ErrorAction SilentlyContinue
 
-Write-Host "`nDONE ✅"
-Write-Host "Only these domains should work now: $($AllowedDomains -join ', ')" -ForegroundColor Cyan
-Write-Host "To revert, remove rules with name Allow_Web_* and Block_All_Other_Web."
+Write-Host "`nDONE!" -ForegroundColor Cyan
+Write-Host "User: $TargetUser"
+Write-Host "Allowed sites only: $($AllowedDomains -join ', ')"
 
 
-# Get-NetFirewallRule | Where-Object {
-#     $_.DisplayName -like "Allow_Web_*" -or
-#     $_.DisplayName -eq "Block_All_Other_Web"
-# } | Remove-NetFirewallRule
+powershell -ExecutionPolicy Bypass -File AllowOnly-Websites.ps1 `
+    -AllowedDomains "google.com","wwe.com","stackoverflow.com" `
+    -TargetUser "KidUser"
