@@ -1,5 +1,4 @@
-#powershell -ExecutionPolicy Bypass -File .\AllowOnly-Websites.ps1 `
-    -AllowedDomains "google.com","wwe.com","stackoverflow.com"
+#powershell -ExecutionPolicy Bypass -File .\AllowOnly-Websites.ps1 ` -AllowedDomains "google.com","wwe.com","stackoverflow.com"
 
 # Script will :  Remove old rules, Add new ones based on domains you pass in command, Block everything else again
 
