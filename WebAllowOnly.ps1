@@ -1,124 +1,61 @@
-#powershell.exe -ExecutionPolicy Bypass -File .\WebAllowOnly.ps1 -UserName "Ayaz,Ashar" -Websites "facebook.com,instagram.com,twitter.com"
+#powershell -ExecutionPolicy Bypass -File .\AllowOnly-Websites.ps1 `
+    -AllowedDomains "google.com","wwe.com","stackoverflow.com"
 
-
-<#
-.SYNOPSIS
-  Per-user "Allow-Only" web access by setting a non-functional system proxy and bypass list.
-
-.PARAMETER UserName
-  Comma-separated local usernames. e.g. "Ayaz,Ashar"
-
-.PARAMETER Websites
-  Comma-separated domains that should be ALLOWED. e.g. "facebook.com,instagram.com"
-
-.NOTES
-  - Run as Administrator.
-  - Users must sign out/in for changes to fully apply. Applies to apps using system proxy.
-#>
+# Script will :  Remove old rules, Add new ones based on domains you pass in command, Block everything else again
 
 param(
-    [Parameter(Mandatory=$true)][string]$UserName,
-    [Parameter(Mandatory=$true)][string]$Websites
+    [Parameter(Mandatory = $true, Position = 0)]
+    [string[]]$AllowedDomains
 )
 
-function Ensure-Admin {
-    if (-not ([Security.Principal.WindowsPrincipal] `
-            [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(`
-            [Security.Principal.WindowsBuiltInRole]::Administrator)) {
-        Write-Host "This script must be run as Administrator." -ForegroundColor Red
-        exit 1
-    }
-}
+Write-Host "`n=== Allow-only mode for websites ===" -ForegroundColor Cyan
+Write-Host "Allowed domains: $($AllowedDomains -join ', ')" -ForegroundColor Yellow
 
-Ensure-Admin
+# 1) Clean old rules (so you can re-run with new domains)
+Write-Host "`nRemoving old rules (if any)..." -ForegroundColor DarkYellow
+Get-NetFirewallRule | Where-Object {
+    $_.DisplayName -like "Allow_Web_*" -or
+    $_.DisplayName -eq "Block_All_Other_Web"
+} | Remove-NetFirewallRule -ErrorAction SilentlyContinue
 
-$UserList = $UserName -split ",\s*"
-$AllowList = $Websites -split ",\s*"
+# 2) Resolve domains -> IPs
+$AllowedIPs = @()
 
-# Build ProxyOverride; include both exact and wildcard subdomains
-$override = @()
-foreach ($d in $AllowList) {
-    $dom = $d.Trim()
-    if ($dom -ne "") {
-        $override += ("*." + $dom)
-        $override += $dom
-    }
-}
-$override += "localhost"
-$override += "127.0.0.1"
-$override += "<local>"
-$proxyOverride = ($override -join ";")
-
-# Use a non-responsive local proxy so non-bypassed sites fail
-$proxyServer = "127.0.0.1:9"
-
-Write-Host "Applying Web Allow-Only (Proxy method)..." -ForegroundColor Cyan
-Write-Host " ProxyServer = $proxyServer" -ForegroundColor Yellow
-Write-Host " ProxyOverride = $proxyOverride" -ForegroundColor Yellow
-
-foreach ($u in $UserList) {
-    Write-Host "`nProcessing user: $u" -ForegroundColor Yellow
-
-    $localUser = Get-LocalUser -Name $u -ErrorAction SilentlyContinue
-    if (-not $localUser) {
-        Write-Host "  User '$u' not found. Skipping." -ForegroundColor Red
-        continue
-    }
-    $sid = $localUser.SID.Value
-    $hkuPath = "HKU:\$sid"
-
-    $setProxy = {
-        param($root)
-        $inet = Join-Path $root "Software\Microsoft\Windows\CurrentVersion\Internet Settings"
-        if (-not (Test-Path $inet)) { New-Item -Path $inet -Force | Out-Null }
-        New-ItemProperty -Path $inet -Name "ProxyEnable" -PropertyType DWord -Value 1 -Force | Out-Null
-        New-ItemProperty -Path $inet -Name "ProxyServer" -PropertyType String -Value $using:proxyServer -Force | Out-Null
-        New-ItemProperty -Path $inet -Name "ProxyOverride" -PropertyType String -Value $using:proxyOverride -Force | Out-Null
-    }
-
-    if (Test-Path $hkuPath) {
-        Write-Host "  Hive loaded for $u. Writing proxy settings..." -ForegroundColor Green
-        & $setProxy $hkuPath
-        continue
-    }
-
-    # Try to load NTUSER.DAT for offline user
-    $profile = (Get-CimInstance -ClassName Win32_UserProfile -Filter "SID='$sid'" -ErrorAction SilentlyContinue).LocalPath
-    if (-not $profile) { $profile = Join-Path -Path $env:SystemDrive -ChildPath "Users\$u" }
-    $ntuser = Join-Path $profile "NTUSER.DAT"
-
-    if (-not (Test-Path $ntuser)) {
-        Write-Host "  NTUSER.DAT not found at $ntuser. Ask user to sign in once or create profile. Skipping." -ForegroundColor Red
-        continue
-    }
-
-    $tempKey = "TempHive_$($sid.Replace('-',''))"
-    Write-Host "  Loading hive: $ntuser -> HKEY_USERS\$tempKey" -ForegroundColor Cyan
-    $loadOut = & reg.exe load "HKU\$tempKey" "$ntuser" 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "  Failed to load hive: $loadOut" -ForegroundColor Red
-        continue
-    }
-
+Write-Host "`nResolving domains to IPs..." -ForegroundColor Yellow
+foreach ($domain in $AllowedDomains) {
     try {
-        & $setProxy ("HKU:\" + $tempKey)
-
-        # Export & import to real SID
-        $exportFile = Join-Path $env:TEMP "$tempKey-InternetSettings.reg"
-        $subKey = "HKU\\$tempKey\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings"
-        & reg.exe export $subKey $exportFile /y | Out-Null
-        if (Test-Path $exportFile) {
-            (Get-Content $exportFile) -replace "HKEY_USERS\\$tempKey", "HKEY_USERS\\$sid" | Set-Content $exportFile
-            & reg.exe import $exportFile | Out-Null
-            Remove-Item $exportFile -Force -ErrorAction SilentlyContinue
-            Write-Host "  Proxy settings applied for SID $sid." -ForegroundColor Green
+        $ips = (Resolve-DnsName $domain -Type A | Select-Object -ExpandProperty IPAddress)
+        if ($ips) {
+            $AllowedIPs += $ips
+            Write-Host "  $domain -> $($ips -join ', ')"
         } else {
-            Write-Host "  Warning: export failed; changes might not persist for SID $sid." -ForegroundColor Yellow
+            Write-Host "  $domain -> no IPs found" -ForegroundColor Red
         }
-    } finally {
-        & reg.exe unload "HKU\$tempKey" | Out-Null
+    } catch {
+        Write-Host "  Failed to resolve $domain" -ForegroundColor Red
     }
 }
 
-Write-Host "`nCompleted. Users must sign out and sign back in for changes to fully take effect." -ForegroundColor Cyan
-Write-Host "Note: This method only affects apps that honor system proxy settings." -ForegroundColor Magenta
+$AllowedIPs = $AllowedIPs | Select-Object -Unique
+
+if (-not $AllowedIPs) {
+    Write-Host "`nNo IPs resolved. Aborting." -ForegroundColor Red
+    exit
+}
+
+# 3) Create ALLOW rules per IP
+Write-Host "`nCreating ALLOW rules..." -ForegroundColor Green
+foreach ($ip in $AllowedIPs) {
+    $ruleName = "Allow_Web_$ip"
+    New-NetFirewallRule -DisplayName $ruleName -Direction Outbound -RemoteAddress $ip -Action Allow -Protocol TCP -ErrorAction SilentlyContinue
+    New-NetFirewallRule -DisplayName $ruleName -Direction Outbound -RemoteAddress $ip -Action Allow -Protocol UDP -ErrorAction SilentlyContinue
+}
+
+# 4) Block everything else on ports 80/443
+Write-Host "`nCreating BLOCK rule for all other web traffic..." -ForegroundColor Red
+New-NetFirewallRule -DisplayName "Block_All_Other_Web" -Direction Outbound -Action Block -Protocol TCP -RemotePort 80,443 -ErrorAction SilentlyContinue
+New-NetFirewallRule -DisplayName "Block_All_Other_Web" -Direction Outbound -Action Block -Protocol UDP -RemotePort 80,443 -ErrorAction SilentlyContinue
+
+Write-Host "`nDONE ✅"
+Write-Host "Only these domains should work now: $($AllowedDomains -join ', ')" -ForegroundColor Cyan
+Write-Host "To revert, remove rules with name Allow_Web_* and Block_All_Other_Web."
