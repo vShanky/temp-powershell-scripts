@@ -1,3 +1,14 @@
+# # Block multiple apps
+# .\EnhancedAppBlocker.ps1 -AppNames chrome, spotify, notepad++, calculator
+
+# # Block with extensions
+# .\EnhancedAppBlocker.ps1 -AppNames "chrome.exe", "spotify.exe"
+
+# # Try to block Microsoft Store apps
+# .\EnhancedAppBlocker.ps1 -AppNames "netflix", "spotify", "microsoft.windows calculator"
+
+
+
 # Enhanced App Blocker.ps1
 param (
     [Parameter(Mandatory = $true)]
